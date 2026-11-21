@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>CINEMATIC AR VEHICLE STUDIO</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1117;--panel:#111c25;--line:#29404e;--accent:#42d6b0;--muted:#9bb0bc}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#eef7fa;font-family:system-ui,Tahoma,Arial;overflow:hidden}
+#stage{position:fixed;inset:0;background:radial-gradient(ellipse at 50% 35%,#203744,#0b1117 70%)}
+canvas{display:block;width:100%;height:100%}
+header{position:fixed;top:0;left:0;right:0;padding:14px 16px;background:linear-gradient(#081018dd,transparent);pointer-events:none}
+.brand{font-weight:800;letter-spacing:1px;font-size:14px}.sub{font-size:11px;color:var(--muted);margin-top:3px}
+#status{position:fixed;top:72px;left:12px;right:12px;text-align:center;font-size:12px;color:#d6e7ed;background:#101d27d9;border:1px solid var(--line);border-radius:12px;padding:9px}
+.panel{position:fixed;bottom:12px;left:12px;right:12px;background:#0c1721ed;border:1px solid var(--line);border-radius:18px;padding:12px;backdrop-filter:blur(12px)}
+.row{display:flex;gap:8px;align-items:center}.row+ .row{margin-top:10px}
+button{border:1px solid #36505e;background:#172833;color:#f2fbff;border-radius:12px;padding:11px 13px;font-weight:700;font-size:13px}
+button.primary{background:var(--accent);border-color:var(--accent);color:#061510;flex:1}
+button.control{flex:1;min-height:46px;font-size:18px;touch-action:none}
+button:active{filter:brightness(1.25);transform:scale(.98)}
+label{display:flex;justify-content:space-between;font-size:12px;color:#c5d5dc;margin:0 2px}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.small{font-size:11px;color:var(--muted);line-height:1.6}
+#fallback{position:fixed;inset:0;display:grid;place-items:center;text-align:center;padding:30px;pointer-events:none}
+#fallback div{max-width:300px;color:#a9c0cb;font-size:13px;line-height:1.8}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<header><div class="brand">CINEMATIC AR VEHICLE STUDIO</div><div class="sub">نسخه ۱ · خودروی زنجیری فیلم‌برداری مجازی</div></header>
+<div id="status">در حال آماده‌سازی موتور سه‌بعدی…</div>
+<div id="fallback"><div>پیش‌نمایش سه‌بعدی در حال بارگذاری است.<br>برای AR واقعی، مرورگر باید از WebXR و ARCore پشتیبانی کند.</div></div>
+<section class="panel">
+ <div class="row"><button id="arBtn" class="primary">ورود به حالت AR</button><button id="resetBtn">بازنشانی</button></div>
+ <div class="row">
+  <button class="control" id="left">↶</button><button class="control" id="forward">▲</button><button class="control" id="back">▼</button><button class="control" id="right">↷</button>
+ </div>
+ <div class="row" style="display:block">
+  <label>مقیاس مدل <span id="scaleVal">۱۰۰٪</span></label><input id="scale" type="range" min="25" max="200" value="100">
+  <label>سرعت حرکت <span id="speedVal">۱۰۰٪</span></label><input id="speed" type="range" min="25" max="150" value="100">
+ </div>
+ <div class="small">در AR: اگر تشخیص سطح پشتیبانی شود، نشانگر را روی سطح قرار بده و روی صفحه بزن. کنترل‌ها فقط حرکت نمایشی خودروی مجازی را انجام می‌دهند.</div>
+</section>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+
+const stage=document.querySelector('#stage'),status=document.querySelector('#status'),fallback=document.querySelector('#fallback');
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,.01,100);
+camera.position.set(4,3.2,6);camera.lookAt(0,.5,0);
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);
+renderer.xr.enabled=true;renderer.outputColorSpace=THREE.SRGBColorSpace;stage.appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xd8f1ff,0x303a32,2));
+const key=new THREE.DirectionalLight(0xffffff,2.2);key.position.set(4,7,5);scene.add(key);
+const grid=new THREE.GridHelper(12,24,0x34505b,0x20333d);grid.position.y=-.02;scene.add(grid);
+
+function mat(color,rough=.8,metal=.15){return new THREE.MeshStandardMaterial({color,roughness:rough,metalness:metal})}
+const bodyMat=mat(0x526a72),dark=mat(0x20282a),rubber=mat(0x151a1b),metal=mat(0x84918a,.45,.65);
+const rover=new THREE.Group();rover.visible=true;
+const hull=new THREE.Mesh(new THREE.BoxGeometry(1.65,.42,2.35),bodyMat);hull.position.y=.68;rover.add(hull);
+const upper=new THREE.Mesh(new THREE.BoxGeometry(1.25,.38,1.25),bodyMat);upper.position.set(0,1.04,-.12);rover.add(upper);
+// Camera mast and sensor pod: a non-weaponized film-production rover.
+const mast=new THREE.Mesh(new THREE.CylinderGeometry(.035,.045,.48,12),metal);
+mast.position.set(0,1.45,-.1);rover.add(mast);
+const sensor=new THREE.Mesh(new THREE.BoxGeometry(.28,.18,.22),dark);
+sensor.position.set(0,1.77,-.1);rover.add(sensor);
+const lens=new THREE.Mesh(new THREE.SphereGeometry(.055,16,12),mat(0x42d6b0,.25,.25));
+lens.position.set(0,1.77,-.22);rover.add(lens);
+const trackGroups=[];
+for(const side of [-1,1]){
+ const tg=new THREE.Group();tg.position.x=side*.88;rover.add(tg);trackGroups.push(tg);
+ const belt=new THREE.Mesh(new THREE.BoxGeometry(.22,.48,2.5),rubber);belt.position.y=.47;tg.add(belt);
+ for(let i=0;i<6;i++){
+  const wheel=new THREE.Mesh(new THREE.CylinderGeometry(.22,.22,.16,16),dark);wheel.rotation.z=Math.PI/2;wheel.position.set(0,.42,-.92+i*.36);tg.add(wheel);
+  const hub=new THREE.Mesh(new THREE.CylinderGeometry(.085,.085,.17,12),metal);hub.rotation.z=Math.PI/2;hub.position.copy(wheel.position);tg.add(hub);
+ }
+}
+const groundShadow=new THREE.Mesh(new THREE.CircleGeometry(1.55,32),new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:.22}));groundShadow.rotation.x=-Math.PI/2;groundShadow.position.y=.015;rover.add(groundShadow);
+scene.add(rover);
+let placed=false,reticle,hitSource=null,viewerSpace=null,refSpace=null,session=null,hitTestAvailable=false;
+let velocity=0,yawVelocity=0,desired=0,turn=0,lastTime=0;
+const keys={forward:false,back:false,left:false,right:false};
+function setStatus(s){status.textContent=s}
+function makeReticle(){
+ const g=new THREE.RingGeometry(.09,.12,32);const m=new THREE.MeshBasicMaterial({color:0x42d6b0});
+ reticle=new THREE.Mesh(g,m);reticle.rotation.x=-Math.PI/2;reticle.matrixAutoUpdate=false;reticle.visible=false;scene.add(reticle);
+}
+makeReticle();
+function placeAt(matrix){rover.position.setFromMatrixPosition(matrix);rover.quaternion.setFromRotationMatrix(matrix);placed=true;rover.visible=true;setStatus('مدل روی سطح قرار گرفت؛ کنترل‌های حرکت فعال هستند.')}
+renderer.domElement.addEventListener('click',()=>{
+ if(session&&hitTestAvailable&&reticle?.visible&&!placed){rover.position.setFromMatrixPosition(reticle.matrix);rover.quaternion.setFromRotationMatrix(reticle.matrix);placed=true;setStatus('خودرو مجازی قرار گرفت.');}
+});
+async function enterAR(){
+  if(!navigator.xr){setStatus('این مرورگر WebXR ندارد.');return}
+  if(session){setStatus('حالت AR هم‌اکنون فعال است.');return}
+
+  // Request immediately from the button click; avoid an awaited support check
+  // before requestSession, and avoid DOM overlay configuration.
+  try{
+    try{
+      session=await navigator.xr.requestSession('immersive-ar',{
+        optionalFeatures:['hit-test']
+      });
+      hitTestAvailable=true;
+    }catch(firstError){
+      console.warn('AR with hit-test was rejected; retrying basic AR:',firstError);
+      session=await navigator.xr.requestSession('immersive-ar');
+      hitTestAvailable=false;
+    }
+
+    await renderer.xr.setSession(session);
+
+    try { refSpace=await session.requestReferenceSpace('local-floor'); }
+    catch(_) { refSpace=await session.requestReferenceSpace('local'); }
+
+    hitSource=null;
+    if(hitTestAvailable){
+      try{
+        viewerSpace=await session.requestReferenceSpace('viewer');
+        hitSource=await session.requestHitTestSource({space:viewerSpace});
+      }catch(hitError){
+        hitTestAvailable=false;
+        hitSource=null;
+        console.warn('Hit-test source unavailable:',hitError);
+      }
+    }
+
+    placed=false;
+    rover.visible=false;
+    reticle.visible=false;
+    setStatus(hitTestAvailable
+      ? 'AR فعال است؛ گوشی را آرام به سمت سطح بگیر و منتظر نشانگر بمان.'
+      : 'AR فعال است، اما تشخیص سطح در این نشست در دسترس نیست.');
+    session.addEventListener('end',()=>{
+      session=null;hitSource=null;hitTestAvailable=false;
+      rover.visible=true;
+      setStatus('حالت AR پایان یافت.');
+    });
+  }catch(e){
+    const message=(e && e.message)?e.message:String(e);
+    session=null;hitSource=null;hitTestAvailable=false;
+    setStatus('شروع AR ناموفق بود: '+message+' — درخواست AR پایه هم پذیرفته نشد؛ فایل را با HTTPS در Chrome اجرا کن.');
+  }
+}
+document.querySelector('#arBtn').addEventListener('click',enterAR);
+document.querySelector('#resetBtn').addEventListener('click',()=>{placed=false;rover.position.set(0,0,0);rover.rotation.set(0,0,0);rover.visible=true;velocity=0;setStatus(session?'مدل را دوباره روی سطح قرار بده.':'مدل پیش‌نمایش بازنشانی شد.')});
+function bind(id,key){const el=document.getElementById(id);const down=e=>{e.preventDefault();keys[key]=true},up=e=>{e.preventDefault();keys[key]=false};el.addEventListener('pointerdown',down);['pointerup','pointercancel','pointerleave'].forEach(n=>el.addEventListener(n,up))}
+bind('forward','forward');bind('back','back');bind('left','left');bind('right','right');
+const scale=document.querySelector('#scale'),speed=document.querySelector('#speed');
+scale.addEventListener('input',()=>{const v=+scale.value/100;rover.scale.setScalar(v);document.querySelector('#scaleVal').textContent=scale.value+'٪'});
+speed.addEventListener('input',()=>document.querySelector('#speedVal').textContent=speed.value+'٪');
+function updatePhysics(dt){
+ const factor=+speed.value/100;
+ desired=(keys.forward?1:0)-(keys.back?1:0);
+ turn=(keys.left?1:0)-(keys.right?1:0);
+ const target=desired*1.8*factor;
+ velocity+=(target-velocity)*Math.min(1,dt*(desired?2.3:3.5));
+ yawVelocity+=(turn*1.6-yawVelocity)*Math.min(1,dt*4);
+ rover.rotation.y+=yawVelocity*dt;
+ rover.position.x+=Math.sin(rover.rotation.y)*velocity*dt;
+ rover.position.z+=Math.cos(rover.rotation.y)*velocity*dt;
+ const bob=Math.sin(performance.now()*.012)*Math.min(Math.abs(velocity)*.008,.012);
+ rover.position.y=(placed? rover.position.y:0)+bob;
+ trackGroups.forEach((g,i)=>g.rotation.z+=velocity*dt*1.8);
+}
+renderer.setAnimationLoop((time,frame)=>{
+ const dt=lastTime?Math.min((time-lastTime)/1000,.05):0;lastTime=time;
+ if(frame&&hitSource&&refSpace&&hitTestAvailable){
+  const results=frame.getHitTestResults(hitSource);
+  if(results.length&&!placed){
+   const pose=results[0].getPose(refSpace);reticle.visible=true;reticle.matrix.fromArray(pose.transform.matrix);
+  }else if(!placed){reticle.visible=false}
+ }
+ if(placed||!session)updatePhysics(dt);
+ if(!session){rover.position.y=.04+Math.sin(time*.0015)*.025; rover.rotation.y+=dt*.12}
+ renderer.render(scene,camera);
+});
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+if(!('xr'in navigator))setStatus('پیش‌نمایش سه‌بعدی آماده است؛ برای AR واقعی به مرورگر دارای WebXR و ARCore نیاز داری.');
+else setStatus('موتور سه‌بعدی آماده است. برای شروع AR دکمه ورود به حالت AR را بزن.');
+fallback.classList.add('hidden');
+</script>
+</body>
+</html>
